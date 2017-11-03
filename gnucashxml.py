@@ -21,6 +21,8 @@
 
 import decimal
 import gzip
+import json
+
 from dateutil.parser import parse as parse_date
 
 try:
@@ -31,6 +33,7 @@ from xml.etree.ElementTree import ParseError
 
 __version__ = "1.1"
 
+
 class Book(object):
     """
     A book is the main container for GNU Cash data.
@@ -38,8 +41,9 @@ class Book(object):
     It doesn't really do anything at all by itself, except to have
     a reference to the accounts, transactions, prices, and commodities.
     """
+
     def __init__(self, tree, guid, prices=None, transactions=None, root_account=None,
-                 accounts=None, commodities=None, slots=None):
+                 accounts=None, commodities=None, slots=None, invoices=None):
         self.tree = tree
         self.guid = guid
         self.prices = prices
@@ -48,6 +52,7 @@ class Book(object):
         self.accounts = accounts or []
         self.commodities = commodities or []
         self.slots = slots or {}
+        self.invoices = invoices or []
 
     def __repr__(self):
         return "<Book {}>".format(self.guid)
@@ -84,9 +89,9 @@ class Book(object):
             outp.append('{:%Y/%m/%d} * {}'.format(trn.date, trn.description))
             for spl in trn.splits:
                 outp.append('\t{:50} {:12.2f} {} {}'.format(spl.account.fullname(),
-                            spl.value,
-                            spl.account.commodity,
-                            '; '+spl.memo if spl.memo else ''))
+                                                            spl.value,
+                                                            spl.account.commodity,
+                                                            '; ' + spl.memo if spl.memo else ''))
             outp.append('')
 
         return '\n'.join(outp)
@@ -98,6 +103,7 @@ class Commodity(object):
 
     Consists of a name (or id) and a space (namespace).
     """
+
     def __init__(self, name, space=None):
         self.name = name
         self.space = space
@@ -113,6 +119,7 @@ class Account(object):
     """
     An account is part of a tree structure of accounts and contains splits.
     """
+
     def __init__(self, name, guid, actype, parent=None,
                  commodity=None, commodity_scu=None,
                  description=None, slots=None):
@@ -167,7 +174,7 @@ class Account(object):
             split_list.extend(splits)
         return sorted(split_list)
 
-    def __lt__(self,other):
+    def __lt__(self, other):
         # For sorted() only
         if isinstance(other, Account):
             return self.fullname() < other.fullname()
@@ -187,7 +194,7 @@ class Transaction(object):
         self.guid = guid
         self.currency = currency
         self.date = date
-        self.post_date = date             # for compatibility with piecash
+        self.post_date = date  # for compatibility with piecash
         self.date_entered = date_entered
         self.description = description
         self.num = num or None
@@ -202,6 +209,68 @@ class Transaction(object):
         # For sorted() only
         if isinstance(other, Transaction):
             return self.date < other.date
+        else:
+            False
+
+
+class Invoice(object):
+    """
+    An invoice is an grouping of data
+    """
+
+    def __init__(self, guid=None, id=None, date=None):
+        self.guid = guid
+        self.id = id
+        self.date = date
+
+    def __repr__(self):
+        return "<Invoice id {} on {} (guid {})".format(
+            self.id, self.date, self.guid)
+
+    def __lt__(self, other):
+        # For sorted() only
+        if isinstance(other, Invoice):
+            return self.date < other.date
+        else:
+            False
+
+
+class Customer(object):
+    """
+    A customer
+    """
+
+    def __init__(self, guid=None, name=None):
+        self.guid = guid
+        self.name = name
+
+    def __repr__(self):
+        return "<Customer {} (guid {})".format(self.name, self.guid)
+
+    def __lt__(self, other):
+        # For sorted() only
+        if isinstance(other, Customer):
+            return self.name < other.name
+        else:
+            False
+
+
+class Vendor(object):
+    """
+    A vendor
+    """
+
+    def __init__(self, guid=None, name=None):
+        self.guid = guid
+        self.name = name
+
+    def __repr__(self):
+        return "<Vendor {} (guid {})".format(self.name, self.guid)
+
+    def __lt__(self, other):
+        # For sorted() only
+        if isinstance(other, Vendor):
+            return self.name < other.name
         else:
             False
 
@@ -228,10 +297,10 @@ class Split(object):
 
     def __repr__(self):
         return "<Split {} '{}' {} {} {}...>".format(self.transaction.date,
-            self.transaction.description,
-            self.transaction.currency,
-            self.value,
-            self.guid[:6])
+                                                    self.transaction.description,
+                                                    self.transaction.currency,
+                                                    self.value,
+                                                    self.guid[:6])
 
     def __lt__(self, other):
         # For sorted() only
@@ -246,6 +315,7 @@ class Price(object):
     A price is GNUCASH record of the price of a commodity against a currency
     Consists of date, currency, commodity,  value
     """
+
     def __init__(self, guid=None, commodity=None, currency=None,
                  date=None, value=None):
         self.guid = guid
@@ -256,10 +326,10 @@ class Price(object):
 
     def __repr__(self):
         return "<Price {}... {:%Y/%m/%d}: {} {}/{} >".format(self.guid[:6],
-            self.date,
-            self.value,
-            self.commodity,
-            self.currency)
+                                                             self.date,
+                                                             self.value,
+                                                             self.commodity,
+                                                             self.currency)
 
     def __lt__(self, other):
         # For sorted() only
@@ -332,23 +402,21 @@ def _book_from_tree(tree):
         space = tree.find('{http://www.gnucash.org/XML/cmdty}space').text
         return Commodity(name=name, space=space)
 
-
     def _commodity_find(space, name):
-        return commoditydict.setdefault((space,name), Commodity(name=name, space=space))
+        return commoditydict.setdefault((space, name), Commodity(name=name, space=space))
 
-    commodities = []        # This will store the Gnucash root list of commodities
-    commoditydict = {}      # This will store the list of commodities used
-                            # The above two may not be equal! eg prices may include commodities
-                            # that are not represented in the account tree
+    commodities = []  # This will store the Gnucash root list of commodities
+    commoditydict = {}  # This will store the list of commodities used
+    # The above two may not be equal! eg prices may include commodities
+    # that are not represented in the account tree
 
     for child in tree.findall('{http://www.gnucash.org/XML/gnc}commodity'):
         comm = _commodity_from_tree(child)
         commodities.append(_commodity_find(comm.space, comm.name))
-        #COMPACT:
-        #name = child.find('{http://www.gnucash.org/XML/cmdty}id').text
-        #space = child.find('{http://www.gnucash.org/XML/cmdty}space').text
-        #commodities.append(_commodity_find(space, name))
-
+        # COMPACT:
+        # name = child.find('{http://www.gnucash.org/XML/cmdty}id').text
+        # space = child.find('{http://www.gnucash.org/XML/cmdty}space').text
+        # commodities.append(_commodity_find(space, name))
 
     # Implemented:
     # - price
@@ -412,6 +480,18 @@ def _book_from_tree(tree):
                                                    accountdict,
                                                    commoditydict))
 
+    customers = []
+    for child in tree.findall('{http://www.gnucash.org/XML/gnc}GncCustomer'):
+        customers.append(_customer_from_tree(child))
+
+    vendors = []
+    for child in tree.findall('{http://www.gnucash.org/XML/gnc}GncVendor'):
+        customers.append(_vendor_from_tree(child))
+
+    invoices = []
+    for child in tree.findall('{http://www.gnucash.org/XML/gnc}GncInvoice'):
+        invoices.append(_invoice_from_tree(child))
+
     slots = _slots_from_tree(
         tree.find('{http://www.gnucash.org/XML/book}slots'))
     return Book(tree=tree,
@@ -421,10 +501,8 @@ def _book_from_tree(tree):
                 root_account=root_account,
                 accounts=accounts,
                 commodities=commodities,
-                slots=slots)
-
-
-
+                slots=slots,
+                invoices=invoices)
 
 
 # Implemented:
@@ -467,6 +545,7 @@ def _account_from_tree(tree, commoditydict):
                                 commodity_scu=commodity_scu,
                                 slots=slots)
 
+
 # Implemented:
 # - trn:id
 # - trn:currency
@@ -485,15 +564,15 @@ def _transaction_from_tree(tree, accountdict, commoditydict):
     currency_space = tree.find(trn + "currency/" +
                                cmdty + "space").text
     currency_name = tree.find(trn + "currency/" +
-                               cmdty + "id").text
+                              cmdty + "id").text
     currency = commoditydict[(currency_space, currency_name)]
     date = parse_date(tree.find(trn + "date-posted/" +
-                                       ts + "date").text)
+                                ts + "date").text)
     date_entered = parse_date(tree.find(trn + "date-entered/" +
                                         ts + "date").text)
     description = tree.find(trn + "description").text
 
-    #rarely used
+    # rarely used
     num = tree.find(trn + "num")
     if num is not None:
         num = num.text
@@ -512,6 +591,90 @@ def _transaction_from_tree(tree, accountdict, commoditydict):
         transaction.splits.append(split)
 
     return transaction
+
+
+# Implemented:
+# - cust:guid
+# - cust:name
+def _customer_from_tree(tree):
+    cust = '{http://www.gnucash.org/XML/cust}'
+    guid = tree.find(cust + "guid").text
+    name = tree.find(cust + "name").text
+    customer = Customer(guid=guid, name=name)
+    return customer
+
+
+# Implemented:
+# - vendor:guid
+# - vendor:name
+def _vendor_from_tree(tree):
+    vend = '{http://www.gnucash.org/XML/vendor}'
+    guid = tree.find(vend + "guid").text
+    name = tree.find(vend + "name").text
+    vendor = Vendor(guid=guid, name=name)
+    return vendor
+
+
+# Implemented:
+# - invoice:guid
+# - invoice:id
+# - invoice:posted / ts:date
+def _invoice_from_tree(tree):
+    invoice = '{http://www.gnucash.org/XML/invoice}'
+    ts = '{http://www.gnucash.org/XML/ts}'
+    owner = '{http://www.gnucash.org/XML/owner}'
+
+    # from lxml import etree
+    # print(etree.tostring(tree, pretty_print=True))
+    # print "-------------------------------------------------------"
+
+    guid = tree.find(invoice + "guid").text
+    id = tree.find(invoice + "id").text
+    date = parse_date((tree.find(invoice + "posted/" + ts + "date")).text)
+
+    owner_tree = tree.find(invoice + "owner")
+    owner_type = owner_tree.find(owner + "type").text
+    owner_id = owner_tree.find(owner + "id").text
+
+    # print owner_type
+    # print owner_id
+
+    # if owner_type == "gncCustomer":
+    #     bla
+    # if owner_type == "gncVendor":
+    #     bla
+    #
+    #owner
+
+    #posttxn
+
+    #postlot
+
+    #postacc
+
+
+
+    #print "-------------------------------------------------------"
+
+    # currency_space = tree.find(trn + "currency/" +
+    #                            cmdty + "space").text
+    # currency_name = tree.find(trn + "currency/" +
+    #                           cmdty + "id").text
+    # currency = commoditydict[(currency_space, currency_name)]
+    # date = parse_date(tree.find(trn + "date-posted/" +
+    #                             ts + "date").text)
+    # date_entered = parse_date(tree.find(trn + "date-entered/" +
+    #                                     ts + "date").text)
+    # description = tree.find(trn + "description").text
+    #
+    # # rarely used
+    # num = tree.find(trn + "num")
+    # if num is not None:
+    #     num = num.text
+    #
+    # slots = _slots_from_tree(tree.find(trn + "slots"))
+    invoice = Invoice(guid=guid, id=id, date=date)
+    return invoice
 
 
 # Implemented:
@@ -589,6 +752,7 @@ def _slots_from_tree(tree):
         else:
             raise RuntimeError("Unknown slot type {}".format(type_))
     return slots
+
 
 def _parse_number(numstring):
     num, denum = numstring.split("/")
