@@ -68,3 +68,15 @@ with gnucashxml.from_filename("test.gnucash") as book:
     for acc in book.accounts:
         print(acc.fullname())
 ```
+
+Dump a list of all customer invoices to json:
+
+```Python
+import json
+import gnucashxml
+
+book = gnucashxml.from_filename("test.gnucash")
+for invoice in book.invoices:
+    if invoice.customer is not None:
+        print json.dumps(invoice, cls=gnucashxml.CustomJSONEncoder, indent=4, sort_keys=True)
+```

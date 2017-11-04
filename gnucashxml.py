@@ -2,9 +2,11 @@
 
 # Copyright (C) 2012 Jorgen Schaefer <forcer@forcix.cx>
 #           (C) 2017 Christopher Lam
+#           (C) 2017 Angelo Hongens
 
 # Author: Jorgen Schaefer <forcer@forcix.cx>
 #         Christopher Lam <https://github.com/christopherlam>
+#         Angelo Hongens <https://github.com/AxisNL>
 
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -22,7 +24,7 @@
 import decimal
 import gzip
 import json
-
+import datetime
 from dateutil.parser import parse as parse_date
 
 try:
@@ -218,10 +220,14 @@ class Invoice(object):
     An invoice is an grouping of data
     """
 
-    def __init__(self, guid=None, id=None, date=None):
-        self.guid = guid
-        self.id = id
+    def __init__(self, active=None, customer=None, id=None, date=None, entries=None, guid=None, vendor=None):
+        self.active = active
+        self.customer = customer
         self.date = date
+        self.id = id
+        self.entries = entries
+        self.guid = guid
+        self.vendor = vendor
 
     def __repr__(self):
         return "<Invoice id {} on {} (guid {})".format(
@@ -240,9 +246,10 @@ class Customer(object):
     A customer
     """
 
-    def __init__(self, guid=None, name=None):
+    def __init__(self, guid=None, name=None, address=None):
         self.guid = guid
         self.name = name
+        self.address = address
 
     def __repr__(self):
         return "<Customer {} (guid {})".format(self.name, self.guid)
@@ -251,6 +258,36 @@ class Customer(object):
         # For sorted() only
         if isinstance(other, Customer):
             return self.name < other.name
+        else:
+            False
+
+
+class Entry(object):
+    def __init__(self,
+                 action=None,
+                 description=None,
+                 guid=None,
+                 invoice_guid=None,
+                 price=None,
+                 qty=None,
+                 taxable=None,
+                 taxtable=None):
+        self.action = action
+        self.description = description
+        self.guid = guid
+        self.invoice_guid = invoice_guid
+        self.price = price
+        self.qty = qty
+        self.taxable = taxable
+        self.taxtable = taxtable
+
+    def __repr__(self):
+        return "<Entry {})".format(self.guid)
+
+    def __lt__(self, other):
+        # For sorted() only
+        if isinstance(other, Entry):
+            return self.guid < other.guid
         else:
             False
 
@@ -270,6 +307,39 @@ class Vendor(object):
     def __lt__(self, other):
         # For sorted() only
         if isinstance(other, Vendor):
+            return self.name < other.name
+        else:
+            False
+
+
+class Taxtableentry(object):
+    def __init__(self, amount=None, ttetype=None):
+        self.amount = amount
+        self.ttetype = ttetype
+
+    def __repr__(self):
+        return "<Taxtableentry {} {})".format(self.amount, self.ttetype)
+
+    def __lt__(self, other):
+        # For sorted() only
+        if isinstance(other, Taxtableentry):
+            return self.amount < other.amount
+        else:
+            False
+
+
+class Taxtable(object):
+    def __init__(self, guid=None, name=None, taxtable_entries=None):
+        self.guid = guid
+        self.name = name
+        self.taxtable_entries = taxtable_entries
+
+    def __repr__(self):
+        return "<Taxtable {} ({})".format(self.name, self.guid)
+
+    def __lt__(self, other):
+        # For sorted() only
+        if isinstance(other, Taxtable):
             return self.name < other.name
         else:
             False
@@ -480,17 +550,29 @@ def _book_from_tree(tree):
                                                    accountdict,
                                                    commoditydict))
 
-    customers = []
+    customersdict = {}
     for child in tree.findall('{http://www.gnucash.org/XML/gnc}GncCustomer'):
-        customers.append(_customer_from_tree(child))
+        customer = _customer_from_tree(child)
+        customersdict[customer.guid] = customer
 
-    vendors = []
+    vendorsdict = {}
     for child in tree.findall('{http://www.gnucash.org/XML/gnc}GncVendor'):
-        customers.append(_vendor_from_tree(child))
+        vendor = _vendor_from_tree(child)
+        vendorsdict[vendor.guid] = vendor
+
+    taxtablesdict = {}
+    for child in tree.findall('{http://www.gnucash.org/XML/gnc}GncTaxTable'):
+        taxtable = _taxtable_from_tree(child)
+        taxtablesdict[taxtable.guid] = taxtable
+
+    entriesdict = {}
+    for child in tree.findall('{http://www.gnucash.org/XML/gnc}GncEntry'):
+        entry = _entry_from_tree(child, taxtablesdict)
+        entriesdict[entry.guid] = entry
 
     invoices = []
     for child in tree.findall('{http://www.gnucash.org/XML/gnc}GncInvoice'):
-        invoices.append(_invoice_from_tree(child))
+        invoices.append(_invoice_from_tree(child, customersdict, entriesdict, vendorsdict))
 
     slots = _slots_from_tree(
         tree.find('{http://www.gnucash.org/XML/book}slots'))
@@ -558,7 +640,6 @@ def _transaction_from_tree(tree, accountdict, commoditydict):
     trn = '{http://www.gnucash.org/XML/trn}'
     cmdty = '{http://www.gnucash.org/XML/cmdty}'
     ts = '{http://www.gnucash.org/XML/ts}'
-    split = '{http://www.gnucash.org/XML/split}'
 
     guid = tree.find(trn + "id").text
     currency_space = tree.find(trn + "currency/" +
@@ -594,13 +675,70 @@ def _transaction_from_tree(tree, accountdict, commoditydict):
 
 
 # Implemented:
+# - entry:guid
+# - entry:action
+# - entry:description
+# - entry:qty
+# - entry:i-price
+# - entry:invoice
+# - entry:i-taxable
+# - entry:i-taxtable
+def _entry_from_tree(tree, taxtabledict):
+    xml_entry = '{http://www.gnucash.org/XML/entry}'
+    guid = tree.find(xml_entry + "guid").text
+    action = None
+    if tree.find(xml_entry + "action") is not None:
+        action = tree.find(xml_entry + "action").text
+    description = None
+    if tree.find(xml_entry + "description") is not None:
+        description = tree.find(xml_entry + "description").text
+    qty = None
+    if tree.find(xml_entry + "qty") is not None:
+        qty = _parse_number(tree.find(xml_entry + "qty").text)
+    price = None
+    if tree.find(xml_entry + "i-price") is not None:
+        price = _parse_number(tree.find(xml_entry + "i-price").text)
+    invoice_guid = None
+    if tree.find(xml_entry + "invoice") is not None:
+        invoice_guid = tree.find(xml_entry + "invoice").text
+    taxable = None
+    taxtable = None
+    if tree.find(xml_entry + "i-taxable") is not None:
+        taxable = tree.find(xml_entry + "i-taxable").text
+        taxtable_id = tree.find(xml_entry + "i-taxtable").text
+        taxtable = taxtabledict[taxtable_id]
+    entry = Entry(action=action,
+                  description=description,
+                  guid=guid,
+                  invoice_guid=invoice_guid,
+                  price=price,
+                  qty=qty,
+                  taxable=taxable,
+                  taxtable=taxtable)
+    return entry
+
+
+# Implemented:
 # - cust:guid
 # - cust:name
+# - cust:addr
 def _customer_from_tree(tree):
     cust = '{http://www.gnucash.org/XML/cust}'
+    addr = '{http://www.gnucash.org/XML/addr}'
     guid = tree.find(cust + "guid").text
     name = tree.find(cust + "name").text
-    customer = Customer(guid=guid, name=name)
+    addr_tree = tree.find(cust + "addr")
+    address = []
+    if addr_tree.find(addr + "addr1") is not None:
+        address.append(addr_tree.find(addr + "addr1").text)
+    if addr_tree.find(addr + "addr2") is not None:
+        address.append(addr_tree.find(addr + "addr2").text)
+    if addr_tree.find(addr + "addr3") is not None:
+        address.append(addr_tree.find(addr + "addr3").text)
+    if addr_tree.find(addr + "addr4") is not None:
+        address.append(addr_tree.find(addr + "addr4").text)
+
+    customer = Customer(guid=guid, name=name, address=address)
     return customer
 
 
@@ -616,10 +754,58 @@ def _vendor_from_tree(tree):
 
 
 # Implemented:
+# - tte:amount
+# - tte:type
+def _taxtableentry_from_tree(tree):
+    tte = '{http://www.gnucash.org/XML/tte}'
+    tte_amount = _parse_number(tree.find(tte + "amount").text)
+    tte_type = tree.find(tte + "type").text
+    taxtableentry = Taxtableentry(amount=tte_amount, ttetype=tte_type)
+    return taxtableentry
+
+
+# Implemented:
+# - taxtable:guid
+# - taxtable:name
+# - taxtable:vendor
+def _taxtable_from_tree(tree):
+    taxtable = '{http://www.gnucash.org/XML/taxtable}'
+    guid = tree.find(taxtable + "guid").text
+    name = tree.find(taxtable + "name").text
+    taxtable_entries_tree = tree.find(taxtable + "entries")
+    taxtable_entries = []
+    for child in taxtable_entries_tree:
+        taxtable_entry = _taxtableentry_from_tree(child)
+        taxtable_entries.append(taxtable_entry)
+
+    # amount
+    # type
+    taxtable = Taxtable(guid=guid, name=name, taxtable_entries=taxtable_entries)
+    return taxtable
+
+
+#
+# <gnc:GncTaxTable version="2.0.0">
+#   <taxtable:guid type="guid">32176fc292851e1bbbc2c22e552bbe32</taxtable:guid>
+#   <taxtable:name>BTW-verlegd-te-betalen</taxtable:name>
+#   <taxtable:refcount>0</taxtable:refcount>
+#   <taxtable:invisible>0</taxtable:invisible>
+#   <taxtable:entries>
+#     <gnc:GncTaxTableEntry>
+#       <tte:acct type="guid">e9c9fc7db96bbe021a89fd5f46bd4de4</tte:acct>
+#       <tte:amount>0/100000</tte:amount>
+#       <tte:type>PERCENT</tte:type>
+#     </gnc:GncTaxTableEntry>
+#   </taxtable:entries>
+# </gnc:GncTaxTable>
+
+
+# Implemented:
 # - invoice:guid
 # - invoice:id
+# - invoice:owner
 # - invoice:posted / ts:date
-def _invoice_from_tree(tree):
+def _invoice_from_tree(tree, customersdict, entriesdict, vendorsdict):
     invoice = '{http://www.gnucash.org/XML/invoice}'
     ts = '{http://www.gnucash.org/XML/ts}'
     owner = '{http://www.gnucash.org/XML/owner}'
@@ -639,41 +825,43 @@ def _invoice_from_tree(tree):
     # print owner_type
     # print owner_id
 
-    # if owner_type == "gncCustomer":
-    #     bla
-    # if owner_type == "gncVendor":
-    #     bla
-    #
-    #owner
+    customer = None
+    vendor = None
 
-    #posttxn
+    if owner_type == "gncCustomer":
+        customer = customersdict[owner_id]
+    if owner_type == "gncVendor":
+        vendor = vendorsdict[owner_id]
 
-    #postlot
+    active = tree.find(invoice + "active").text
 
-    #postacc
+    entries = []
+    for key in entriesdict.keys():
+        entry = entriesdict[key]
+        if entry.invoice_guid == guid:
+            entries.append(entry)
 
+    # posttxn = tree.find(invoice + "posttxn").text
+    # print "posttxn {}".format(posttxn)
+    # postlot = tree.find(invoice + "posttxn").text
+    # postlot = tree.find(invoice + "posttxn").text
+    # currency = tree.find(invoice + "currency")
+    # < invoice:currency >
+    # < cmdty:space > ISO4217 < / cmdty:space >
+    # < cmdty:id > EUR < / cmdty:id >
+    # < / invoice:currency >
+    # slots = tree.find(invoice + "slots")
+    # < invoice:slots >
+    # < slot >
+    # < slot:key > credit - note < / slot:key >
+    # < slot:value
+    # type = "integer" > 0 < / slot:value >
+    # < / slot >
+    # < / invoice:slots >
 
+    # print "-------------------------------------------------------"
 
-    #print "-------------------------------------------------------"
-
-    # currency_space = tree.find(trn + "currency/" +
-    #                            cmdty + "space").text
-    # currency_name = tree.find(trn + "currency/" +
-    #                           cmdty + "id").text
-    # currency = commoditydict[(currency_space, currency_name)]
-    # date = parse_date(tree.find(trn + "date-posted/" +
-    #                             ts + "date").text)
-    # date_entered = parse_date(tree.find(trn + "date-entered/" +
-    #                                     ts + "date").text)
-    # description = tree.find(trn + "description").text
-    #
-    # # rarely used
-    # num = tree.find(trn + "num")
-    # if num is not None:
-    #     num = num.text
-    #
-    # slots = _slots_from_tree(tree.find(trn + "slots"))
-    invoice = Invoice(guid=guid, id=id, date=date)
+    invoice = Invoice(active=active, guid=guid, id=id, date=date, customer=customer, vendor=vendor, entries=entries)
     return invoice
 
 
@@ -757,3 +945,12 @@ def _slots_from_tree(tree):
 def _parse_number(numstring):
     num, denum = numstring.split("/")
     return decimal.Decimal(num) / decimal.Decimal(denum)
+
+
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, datetime.datetime):
+            return o.isoformat()
+        if isinstance(o, decimal.Decimal):
+            return float(o)
+        return o.__dict__
