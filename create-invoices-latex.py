@@ -1,6 +1,9 @@
 import locale
 import os
 import subprocess
+
+from decimal import Decimal
+
 import gnucashxml
 
 gnucashfile = "/Users/angelo/Desktop/paperport/Hongens Automatisering/2017/gnucash/hongens-2017.gnucash"
@@ -92,8 +95,8 @@ def getlatex(invoiceobj):
 
     for entry in invoiceobj.entries:
         uren = entry.qty
-        tarief = entry.price
-        totaalexcl_regel = entry.qty * entry.price
+        tarief = Decimal(entry.price)
+        totaalexcl_regel = Decimal(entry.qty * entry.price)
         if int(entry.taxable) == 1:
             taxtable = entry.taxtable
             if len(taxtable.taxtable_entries) > 1:
@@ -103,7 +106,7 @@ def getlatex(invoiceobj):
             btw_tarief_naam = "{0} ({1}\%)".format(taxtable.name, taxtableentry.amount)
             if btw_tarief_naam not in btwtabel.keys():
                 btwtabel[btw_tarief_naam] = 0
-            btw_hier = (totaalexcl_regel * taxtableentry.amount) / 100
+            btw_hier = Decimal((totaalexcl_regel * taxtableentry.amount)) / 100
             btwtabel[btw_tarief_naam] += btw_hier
 
         latex += "  {0}, {1} uur \\`a \\EUR{{{2}}}. &  \\EUR{{{3}}}\\\\\n".format(
@@ -159,15 +162,15 @@ def runxelatex(fulltexfilename):
     if not os.path.exists(fullpdffilename):
         command_line = "{0} \"{1}\"".format(xelatex_path, fulltexfilename)
 
-        print "would run {0}".format(command_line)
+        print("would run {0}".format(command_line))
         command_result = subprocess.Popen(command_line, stdout=subprocess.PIPE, shell=True, cwd=outputfolder)
         output = command_result.communicate()
         command_exitcode = command_result.returncode
         if command_exitcode == 0:
-            print "Successfully created {0}".format(fullpdffilename)
+            print("Successfully created {0}".format(fullpdffilename))
         else:
-            print "Error running command '{0}', exit code {1}".format(command_line, command_exitcode)
-            print output
+            print("Error running command '{0}', exit code {1}".format(command_line, command_exitcode))
+            print(output)
             exit(1)
     synctextpath = fulltexfilename.replace(".tex", ".synctex.gz")
     if os.path.exists(synctextpath):
