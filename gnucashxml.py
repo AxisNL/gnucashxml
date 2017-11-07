@@ -812,11 +812,11 @@ def _invoice_from_tree(tree, customersdict, entriesdict, vendorsdict):
 
     # from lxml import etree
     # print(etree.tostring(tree, pretty_print=True))
-    # print "-------------------------------------------------------"
+    # print("-------------------------------------------------------")
 
     guid = tree.find(invoice + "guid").text
     id = tree.find(invoice + "id").text
-    date = parse_date((tree.find(invoice + "posted/" + ts + "date")).text)
+    date = parse_date((tree.find(invoice + "opened/" + ts + "date")).text)
 
     owner_tree = tree.find(invoice + "owner")
     owner_type = owner_tree.find(owner + "type").text
@@ -944,7 +944,9 @@ def _slots_from_tree(tree):
 
 def _parse_number(numstring):
     num, denum = numstring.split("/")
-    return decimal.Decimal(num) / decimal.Decimal(denum)
+    amount_dec = decimal.Decimal(num) / decimal.Decimal(denum)
+    amount_dec = decimal.Decimal(str(amount_dec)).quantize(decimal.Decimal('.01'), rounding=decimal.ROUND_UP)
+    return amount_dec
 
 
 class CustomJSONEncoder(json.JSONEncoder):
