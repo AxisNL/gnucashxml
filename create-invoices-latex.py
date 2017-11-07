@@ -1,10 +1,8 @@
+import gnucashxml
 import locale
 import os
 import subprocess
-
-from decimal import Decimal
-
-import gnucashxml
+import decimal
 
 gnucashfile = "/Users/angelo/Desktop/paperport/Hongens Automatisering/2017/gnucash/hongens-2017.gnucash"
 yearfilter = "2017"
@@ -13,11 +11,11 @@ xelatex_path = "/Library/TeX/texbin/xelatex"
 
 
 def formatcurrency(amount):
+    amount_decimal = decimal.Decimal(str(amount)).quantize(decimal.Decimal('.01'), rounding=decimal.ROUND_UP)
     locale.setlocale(locale.LC_ALL, 'nl_NL.utf-8')
-    s = locale.currency(amount, grouping=True, symbol=False)
+    s = locale.currency(amount_decimal, grouping=True, symbol=False)
     s = s.replace(" ", ".")
     return s
-
 
 def getlatex(invoiceobj):
     latex = ""
@@ -95,8 +93,8 @@ def getlatex(invoiceobj):
 
     for entry in invoiceobj.entries:
         uren = entry.qty
-        tarief = Decimal(entry.price)
-        totaalexcl_regel = Decimal(entry.qty * entry.price)
+        tarief = entry.price
+        totaalexcl_regel = entry.qty * entry.price
         if int(entry.taxable) == 1:
             taxtable = entry.taxtable
             if len(taxtable.taxtable_entries) > 1:
@@ -106,9 +104,10 @@ def getlatex(invoiceobj):
             btw_tarief_naam = "{0} ({1}\%)".format(taxtable.name, taxtableentry.amount)
             if btw_tarief_naam not in btwtabel.keys():
                 btwtabel[btw_tarief_naam] = 0
-            btw_hier = Decimal((totaalexcl_regel * taxtableentry.amount)) / 100
-            btwtabel[btw_tarief_naam] += btw_hier
 
+            btw_hier = decimal.Decimal((totaalexcl_regel * taxtableentry.amount) / 100)
+            btwtabel[btw_tarief_naam] += btw_hier
+        totaalexcl_regel
         latex += "  {0}, {1} uur \\`a \\EUR{{{2}}}. &  \\EUR{{{3}}}\\\\\n".format(
             entry.description,
             uren,
@@ -187,7 +186,8 @@ def runxelatex(fulltexfilename):
 book = gnucashxml.from_filename(gnucashfile)
 for invoice in book.invoices:
     if invoice.customer is not None:
-        if yearfilter in invoice.id:
+        #if yearfilter in invoice.id:
+        if invoice.id == '2017.022':
             latexcontent = getlatex(invoice)
             filename = "{0} {1}.tex".format(invoice.id, invoice.customer.name)
             fullpath = os.path.join(outputfolder, filename)
