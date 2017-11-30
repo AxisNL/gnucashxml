@@ -1,3 +1,5 @@
+import json
+
 import gnucashxml
 import locale
 import os
@@ -92,7 +94,8 @@ def getlatex(invoiceobj):
     btwtabel = {}
 
     for entry in invoiceobj.entries:
-        uren = entry.qty
+        action = entry.action
+        qty = entry.qty
         tarief = entry.price
         totaalexcl_regel = entry.qty * entry.price
         if int(entry.taxable) == 1:
@@ -101,19 +104,27 @@ def getlatex(invoiceobj):
                 print("Error, more than one taxtableentry in taxtable!")
                 exit(1)
             taxtableentry = taxtable.taxtable_entries[0]
-            btw_tarief_naam = "{0} ({1}\%)".format(taxtable.name, taxtableentry.amount)
+            btw_tarief_naam = "{0} ({1}\%)".format(taxtable.name, taxtableentry.amount.normalize())
             if btw_tarief_naam not in btwtabel.keys():
                 btwtabel[btw_tarief_naam] = 0
 
             btw_hier = decimal.Decimal((totaalexcl_regel * taxtableentry.amount) / 100)
             btwtabel[btw_tarief_naam] += btw_hier
         totaalexcl_regel
-        latex += "  {0}, {1} uur \\`a \\EUR{{{2}}}. &  \\EUR{{{3}}}\\\\\n".format(
-            entry.description,
-            uren,
-            formatcurrency(tarief),
-            formatcurrency(totaalexcl_regel)
-        )
+        if action == "Uren":
+            latex += "  {0}, {1} uur \\`a \\EUR{{{2}}}. &  \\EUR{{{3}}}\\\\\n".format(
+                entry.description,
+                qty.normalize(),
+                formatcurrency(tarief),
+                formatcurrency(totaalexcl_regel)
+            )
+        else:
+            latex += "  {0}, {1} x \\EUR{{{2}}}. &  \\EUR{{{3}}}\\\\\n".format(
+                entry.description,
+                qty.normalize(),
+                formatcurrency(tarief),
+                formatcurrency(totaalexcl_regel)
+            )
         totaalexcl += totaalexcl_regel
     latex += "\\end{tabular*}\n"
     latex += "%-------------------------------------\n"
@@ -150,7 +161,8 @@ def getlatex(invoiceobj):
     latex += "\\vspace{1cm}\n"
     latex += "\n"
     latex += "\\footnotesize\n"
-    latex += "Wij verzoeken u vriendelijk bij betaling per bank het bedrag binnen 14 dagen over te maken op bovenstaande bankrekening.\n"
+    latex += "Wij verzoeken u vriendelijk bij betaling per bank het bedrag binnen 14 dagen over te maken op " \
+             "bovenstaande bankrekening onder vermelding van het bovengenoemde factuurnummer.\n "
     latex += "\n"
     latex += "\\end{document}\n"
     return latex
