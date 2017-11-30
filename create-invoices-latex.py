@@ -186,8 +186,8 @@ def runxelatex(fulltexfilename):
 book = gnucashxml.from_filename(gnucashfile)
 for invoice in book.invoices:
     if invoice.customer is not None:
-        #if yearfilter in invoice.id:
-        if invoice.id == '2017.022':
+        if yearfilter in invoice.id:
+        #if invoice.id == '2017.022':
             latexcontent = getlatex(invoice)
             filename = "{0} {1}.tex".format(invoice.id, invoice.customer.name)
             fullpath = os.path.join(outputfolder, filename)
