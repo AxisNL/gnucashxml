@@ -6,9 +6,9 @@ import os
 import subprocess
 import decimal
 
-gnucashfile = "/Users/angelo/Desktop/paperport/Hongens Automatisering/2017/gnucash/hongens-2017.gnucash"
-yearfilter = "2017"
-outputfolder = "/Users/angelo/Desktop/paperport/Hongens Automatisering/2017/facturen/tmp"
+gnucashfile = "/Users/angelo/Desktop/paperport/Hongens Automatisering/2018/gnucash/hongens-2018.gnucash"
+yearfilter = "2018"
+outputfolder = "/Users/angelo/Desktop/paperport/Hongens Automatisering/2018/facturen/tmp"
 xelatex_path = "/Library/TeX/texbin/xelatex"
 
 
