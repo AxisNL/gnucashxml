@@ -1,4 +1,5 @@
 import json
+from operator import attrgetter
 
 import gnucashxml
 import locale
@@ -93,7 +94,10 @@ def getlatex(invoiceobj):
 
     btwtabel = {}
 
-    for entry in invoiceobj.entries:
+    entries = invoiceobj.entries
+    entries.sort(key=attrgetter('description'))
+
+    for entry in entries:
         action = entry.action
         qty = entry.qty
         tarief = entry.price
