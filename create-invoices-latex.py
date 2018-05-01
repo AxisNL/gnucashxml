@@ -101,7 +101,11 @@ def getlatex(invoiceobj):
         action = entry.action
         qty = entry.qty
         tarief = entry.price
-        totaalexcl_regel = entry.qty * entry.price
+        if qty is None:
+            qty = 0
+        if tarief is None:
+            tarief = 0
+        totaalexcl_regel = qty * tarief
         if int(entry.taxable) == 1:
             taxtable = entry.taxtable
             if len(taxtable.taxtable_entries) > 1:
