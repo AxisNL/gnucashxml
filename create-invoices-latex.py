@@ -20,6 +20,13 @@ def formatcurrency(amount):
     s = s.replace(" ", ".")
     return s
 
+
+def formatfloat(float):
+    locale.setlocale(locale.LC_ALL, 'nl_NL.utf-8')
+    s = locale.str(float)
+    return s
+
+
 def getlatex(invoiceobj):
     latex = ""
     latex += "\\documentclass[a4paper]{letter}\n"
@@ -122,7 +129,7 @@ def getlatex(invoiceobj):
         if action == "Uren":
             latex += "  {0}, {1} uur \\`a \\EUR{{{2}}}. &  \\EUR{{{3}}}\\\\\n".format(
                 entry.description,
-                qty.normalize(),
+                formatfloat(qty),
                 formatcurrency(tarief),
                 formatcurrency(totaalexcl_regel)
             )
